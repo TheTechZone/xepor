@@ -59,7 +59,7 @@ class InterceptedAPI:
 
     Defining a constant for your target (victim) domain name is not mandatory
     (even the `default_host` parameter itself is optional) but
-    recommanded as a best practise. If you have multiple hosts to inject
+    recommended as best practise. If you have multiple hosts to inject
     (see an example at `xepor/xepor-examples/polyv_scrapper/polyv.py <https://github.com/xepor/xepor-examples/blob/306ffad36a9ff3db00eb44b67b8b83a85e234d6e/polyv_scrapper/polyv.py#L27-L29>`_), you would have to specify the domain name
     multiple times in each :func:`route` in `host` parameter,
     (especially for domains other than `default_host`).
@@ -108,13 +108,13 @@ class InterceptedAPI:
     ]
 
     def __init__(
-        self,
-        default_host: Optional[str] = None,
-        host_mapping: List[Tuple[Union[str, re.Pattern], str]] = {},
-        blacklist_domain: List[str] = [],
-        request_passthrough: bool = True,
-        response_passthrough: bool = True,
-        respect_proxy_headers: bool = False,
+            self,
+            default_host: Optional[str] = None,
+            host_mapping: List[Tuple[Union[str, re.Pattern], str]] = {},
+            blacklist_domain: List[str] = [],
+            request_passthrough: bool = True,
+            response_passthrough: bool = True,
+            respect_proxy_headers: bool = False,
     ):
 
         self.default_host = default_host
@@ -134,7 +134,7 @@ class InterceptedAPI:
     def load(self, loader: Loader):
         """
         This function is called by the mitmproxy framework *before* proxy server started.
-        Currently it's used to set a must-have mitmproxy option for Xepor
+        Currently, it's used to set a must-have mitmproxy option for Xepor
         to work: ``connection_strategy=lazy``. If you want to override this method,
         remember to call ``super().load(loader)`` in your code.
 
@@ -183,8 +183,8 @@ class InterceptedAPI:
             self._log.info("<= [%s] %s", flow.request.method, path)
             handler(flow, *params.fixed, **params.named)
         elif (
-            not self.request_passthrough
-            or self.get_host(flow)[0] in self.blacklist_domain
+                not self.request_passthrough
+                or self.get_host(flow)[0] in self.blacklist_domain
         ):
             self._log.warning("<= [%s] %s default response", flow.request.method, path)
             flow.response = self.default_response()
@@ -219,8 +219,8 @@ class InterceptedAPI:
             self._log.info("=> [%s] %s", flow.response.status_code, path)
             handler(flow, *params.fixed, **params.named)
         elif (
-            not self.response_passthrough
-            or self.get_host(flow)[0] in self.blacklist_domain
+                not self.response_passthrough
+                or self.get_host(flow)[0] in self.blacklist_domain
         ):
             self._log.warning(
                 "=> [%s] %s default response", flow.response.status_code, path
@@ -230,13 +230,25 @@ class InterceptedAPI:
             flow.metadata[FlowMeta.RESP_PASSTHROUGH] = True
             self._log.debug("=> [%s] %s passthrough", flow.response.status_code, path)
 
+    def replace_route(self, host, path, new_handler, rtype=RouteType.REQUEST):
+        """
+        Replace an existing route if it matches the host and path.
+        """
+        routes = self.request_routes if rtype == RouteType.REQUEST else self.response_routes
+
+        for i, (h, parser, handler) in enumerate(routes):
+            if h == host and parser.parse(path) is not None:
+                routes[i] = (host, Parser(path), new_handler)
+                return True
+        return False
+
     def route(
-        self: str,
-        path: str,
-        host: Optional[str] = None,
-        rtype: RouteType = RouteType.REQUEST,
-        catch_error: bool = True,
-        return_error: bool = False,
+            self,
+            path: str,
+            host: Optional[str] = None,
+            rtype: RouteType = RouteType.REQUEST,
+            catch_error: bool = True,
+            return_error: bool = False,
     ):
         """
         This is the main API used by end users.
@@ -354,10 +366,10 @@ class InterceptedAPI:
         host, port = self.get_host(flow)
         for src, dest in self.host_mapping:
             if (isinstance(src, re.Pattern) and src.match(host)) or (
-                isinstance(src, str) and host == src
+                    isinstance(src, str) and host == src
             ):
                 if overwrite and (
-                    flow.request.host != dest or flow.request.port != port
+                        flow.request.host != dest or flow.request.port != port
                 ):
                     if self.respect_proxy_headers:
                         flow.request.scheme = flow.request.headers["X-Forwarded-Proto"]
