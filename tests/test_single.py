@@ -1,8 +1,7 @@
 import pytest
 from mitmproxy.http import HTTPFlow, Response
 from mitmproxy.test import taddons, tflow
-from xepor import InterceptedAPI
-
+from src.xepor import InterceptedAPI
 
 __author__ = "ttimasdf"
 __copyright__ = "ttimasdf"
@@ -52,3 +51,34 @@ def test_non_intercepted_route(toptions, api_simple):
 
         api_simple.request(flow)
         assert flow.response is None
+
+
+@pytest.fixture
+def api_overwritten():
+    api = InterceptedAPI("example.org")
+
+    @api.route("/healthz")
+    def route1(flow: HTTPFlow):
+        flow.response = Response.make(500, "Server Down")
+
+    @api.route("/healthz")
+    def route1_alt(flow: HTTPFlow):
+        flow.response = Response.make(200, "Server Up for requests")
+
+    return api
+
+
+@pytest.mark.parametrize(
+    "req_url,resp_body",
+    [
+        ("http://example.org/healthz", "Server Up for requests"),
+    ],
+)
+def test_route_replacement(toptions, api_overwritten, req_url, resp_body):
+    with taddons.context(api_overwritten, options=toptions) as tctx:
+        flow = tflow.tflow()
+        flow.request.url = req_url
+        assert flow.response is None
+
+        api_overwritten.request(flow)
+        assert resp_body in flow.response.text

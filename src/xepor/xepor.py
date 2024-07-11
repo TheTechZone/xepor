@@ -340,12 +340,17 @@ class InterceptedAPI:
         def wrapper(handler):
             if catch_error:
                 handler = catcher(handler)
-            if rtype == RouteType.REQUEST:
-                self.request_routes.append((host, Parser(path), handler))
-            elif rtype == RouteType.RESPONSE:
-                self.response_routes.append((host, Parser(path), handler))
+
+            # Check and replace existing route
+            if self.replace_route(host, path, handler, rtype):
+                self._log.info("Replaced existing route for host: %s, path: %s", host, path)
             else:
-                raise ValueError(f"Invalid route type: {rtype}")
+                if rtype == RouteType.REQUEST:
+                    self.request_routes.append((host, Parser(path), handler))
+                elif rtype == RouteType.RESPONSE:
+                    self.response_routes.append((host, Parser(path), handler))
+                else:
+                    raise ValueError(f"Invalid route type: {rtype}")
             return handler
 
         return wrapper
