@@ -289,7 +289,9 @@ class InterceptedAPI:
 
         if len(partial_matches) > 0:
             for i, (h, parser, m, handler) in partial_matches:
-                # fix partials
+                if method == m:
+                    routes[i] = (h, parser, m, new_handler)
+                    return True
                 if method in m:
                     m = m & ~method
                     routes[i] = (h, parser, m, handler)
