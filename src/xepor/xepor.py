@@ -5,7 +5,7 @@ import re
 import sys
 import traceback
 import urllib.parse
-from enum import Enum
+from enum import Enum, IntFlag, auto
 from typing import List, Optional, Tuple, Union
 
 from mitmproxy import ctx
@@ -32,16 +32,45 @@ class RouteType(Enum):
     """The route will be matched on mitmproxy ``response`` event"""
 
 
+class HTTPVerb(IntFlag):
+    GET = auto()
+    HEAD = auto()
+    POST = auto()
+    PUT = auto()
+    DELETE = auto()
+    CONNECT = auto()
+    OPTIONS = auto()
+    TRACE = auto()
+    PATCH = auto()
+
+    ANY = GET | HEAD | POST | PUT | DELETE | CONNECT | OPTIONS | TRACE | PATCH
+
+    # Class method to parse a string representation of flags
+    @classmethod
+    def parse_flags(cls, flags_str):
+        # Split the input string by '|' to get individual flag names
+        flags = flags_str.split("|")
+        # Initialize an IntFlag instance with value 0
+        parsed_flags = cls(0)
+        # Iterate over the split flags and set the corresponding bits
+        for flag_name in flags:
+            # Remove leading/trailing whitespace and strip quotes if present
+            flag_name = flag_name.strip().strip("'\"")
+            # Set the bit corresponding to the flag name
+            parsed_flags |= getattr(cls, flag_name)
+        return parsed_flags
+
+
 class FlowMeta(Enum):
     """
     This class is used internally by Xepor to mark ``flow`` object by certain metadata.
     Refer to the source code for detailed usage.
     """
 
-    REQ_PASSTHROUGH = "xepor-request-passthrough"
-    RESP_PASSTHROUGH = "xepor-response-passthrough"
-    REQ_URLPARSE = "xepor-request-urlparse"
-    REQ_HOST = "xepor-request-host"
+    REQ_PASSTHROUGH: str = "xepor-request-passthrough"
+    RESP_PASSTHROUGH: str = "xepor-response-passthrough"
+    REQ_URLPARSE: str = "xepor-request-urlparse"
+    REQ_HOST: str = "xepor-request-host"
 
 
 class InterceptedAPI:
@@ -108,19 +137,21 @@ class InterceptedAPI:
     ]
 
     def __init__(
-            self,
-            default_host: Optional[str] = None,
-            host_mapping: List[Tuple[Union[str, re.Pattern], str]] = {},
-            blacklist_domain: List[str] = [],
-            request_passthrough: bool = True,
-            response_passthrough: bool = True,
-            respect_proxy_headers: bool = False,
+        self,
+        default_host: Optional[str] = None,
+        host_mapping: List[Tuple[Union[str, re.Pattern], str]] = {},
+        blacklist_domain: List[str] = [],
+        request_passthrough: bool = True,
+        response_passthrough: bool = True,
+        respect_proxy_headers: bool = False,
     ):
 
         self.default_host = default_host
         self.host_mapping = host_mapping
-        self.request_routes: List[Tuple[Optional[str], Parser, callable]] = []
-        self.response_routes: List[Tuple[Optional[str], Parser, callable]] = []
+        self.request_routes: List[Tuple[Optional[str], Parser, HTTPVerb, callable]] = []
+        self.response_routes: List[Tuple[Optional[str], Parser, HTTPVerb, callable]] = (
+            []
+        )
         self.blacklist_domain = blacklist_domain
         self.request_passthrough = request_passthrough
         self.response_passthrough = response_passthrough
@@ -178,13 +209,15 @@ class InterceptedAPI:
             )
             return
         host = self.remap_host(flow)
-        handler, params = self.find_handler(host, path, RouteType.REQUEST)
+        handler, params = self.find_handler(
+            host, path, RouteType.REQUEST, HTTPVerb.parse_flags(flow.request.method)
+        )
         if handler is not None:
             self._log.info("<= [%s] %s", flow.request.method, path)
             handler(flow, *params.fixed, **params.named)
         elif (
-                not self.request_passthrough
-                or self.get_host(flow)[0] in self.blacklist_domain
+            not self.request_passthrough
+            or self.get_host(flow)[0] in self.blacklist_domain
         ):
             self._log.warning("<= [%s] %s default response", flow.request.method, path)
             flow.response = self.default_response()
@@ -213,14 +246,17 @@ class InterceptedAPI:
             )
             return
         handler, params = self.find_handler(
-            self.get_host(flow)[0], path, RouteType.RESPONSE
+            self.get_host(flow)[0],
+            path,
+            RouteType.RESPONSE,
+            HTTPVerb.parse_flags(flow.request.method),
         )
         if handler is not None:
             self._log.info("=> [%s] %s", flow.response.status_code, path)
             handler(flow, *params.fixed, **params.named)
         elif (
-                not self.response_passthrough
-                or self.get_host(flow)[0] in self.blacklist_domain
+            not self.response_passthrough
+            or self.get_host(flow)[0] in self.blacklist_domain
         ):
             self._log.warning(
                 "=> [%s] %s default response", flow.response.status_code, path
@@ -230,29 +266,52 @@ class InterceptedAPI:
             flow.metadata[FlowMeta.RESP_PASSTHROUGH] = True
             self._log.debug("=> [%s] %s passthrough", flow.response.status_code, path)
 
-    def replace_route(self, host, path, new_handler, rtype=RouteType.REQUEST):
+    def replace_route(
+        self, host, path, new_handler, rtype=RouteType.REQUEST, method=HTTPVerb.ANY
+    ):
         """
         Replace an existing route if it matches the host and path.
         """
-        routes = self.request_routes if rtype == RouteType.REQUEST else self.response_routes
+        routes = (
+            self.request_routes if rtype == RouteType.REQUEST else self.response_routes
+        )
 
-        for i, (h, parser, handler) in enumerate(routes):
-            if h == host and parser.parse(path) is not None:
-                routes[i] = (host, Parser(path), new_handler)
-                return True
+        partial_matches = []
+        for i, (h, parser, m, handler) in enumerate(routes):
+            if (
+                h == host
+                and (method in m or m in method)
+                and parser.parse(path) is not None
+            ):
+                # routes[i] = (host, Parser(path), method, new_handler)
+                # return True
+                partial_matches.append([i, (h, parser, m, handler)])
+
+        if len(partial_matches) > 0:
+            for i, (h, parser, m, handler) in partial_matches:
+                # fix partials
+                if method in m:
+                    m = m & ~method
+                    routes[i] = (h, parser, m, handler)
+                elif m in method:
+                    method = method & ~m
+            routes.append((host, Parser(path), method, new_handler))
+            return True
+
         return False
 
     def route(
-            self,
-            path: str,
-            host: Optional[str] = None,
-            rtype: RouteType = RouteType.REQUEST,
-            catch_error: bool = True,
-            return_error: bool = False,
+        self,
+        path: str,
+        host: Optional[str] = None,
+        rtype: RouteType = RouteType.REQUEST,
+        method: HTTPVerb = HTTPVerb.ANY,
+        catch_error: bool = True,
+        return_error: bool = False,
     ):
         """
         This is the main API used by end users.
-        It decorate a view function to register it with given host and URL.
+        It decorates a view function to register it with given host and URL.
 
         Typical usage (taken from official example: `httpbin.py <https://github.com/xepor/xepor-examples/blob/main/httpbin/httpbin.py>`_):
 
@@ -291,6 +350,9 @@ class InterceptedAPI:
         :param rtype: Set the route be matched on either request or response.
             Accepting :class:`RouteType`.
 
+        :param method: Sets the HTTP methods supported by the route.
+            A bitmap created from :class:`HTTPVerb`.
+
         :param catch_error: If set to `True`, the exception inside the route
             will be handled by Xepor.
 
@@ -301,11 +363,11 @@ class InterceptedAPI:
             through :func:`error_response`.
 
             If set to `False`, the exception will be printed to console,
-            the ``flow`` object will be passed to mitmproxy continuely.
+            the ``flow`` object will be passed to mitmproxy continually.
 
             .. admonition:: Note
 
-                When exception occured, the ``flow`` object do `not` always stay intact.
+                When an exception occurred, the ``flow`` object does `not` always stay intact.
                 This option is only a try-catch like normal Python code. If you run
                 ``modify1(flow) and modify2(flow) and modify3(flow)`` and exception raised
                 in ``modify2()``, the ``flow`` object will be modified partially.
@@ -342,13 +404,22 @@ class InterceptedAPI:
                 handler = catcher(handler)
 
             # Check and replace existing route
-            if self.replace_route(host, path, handler, rtype):
-                self._log.info("Replaced existing route for host: %s, path: %s", host, path)
+            if self.replace_route(host, path, handler, rtype, method):
+                self._log.info(
+                    "Replaced existing route for host: %s, path: %s", host, path
+                )
             else:
                 if rtype == RouteType.REQUEST:
-                    self.request_routes.append((host, Parser(path), handler))
+                    self.request_routes.append(
+                        (
+                            host,
+                            Parser(path),
+                            method,
+                            handler,
+                        )
+                    )
                 elif rtype == RouteType.RESPONSE:
-                    self.response_routes.append((host, Parser(path), handler))
+                    self.response_routes.append((host, Parser(path), method, handler))
                 else:
                     raise ValueError(f"Invalid route type: {rtype}")
             return handler
@@ -371,10 +442,10 @@ class InterceptedAPI:
         host, port = self.get_host(flow)
         for src, dest in self.host_mapping:
             if (isinstance(src, re.Pattern) and src.match(host)) or (
-                    isinstance(src, str) and host == src
+                isinstance(src, str) and host == src
             ):
                 if overwrite and (
-                        flow.request.host != dest or flow.request.port != port
+                    flow.request.host != dest or flow.request.port != port
                 ):
                     if self.respect_proxy_headers:
                         flow.request.scheme = flow.request.headers["X-Forwarded-Proto"]
@@ -446,7 +517,7 @@ class InterceptedAPI:
         """
         return Response.make(502, msg)
 
-    def find_handler(self, host, path, rtype=RouteType.REQUEST):
+    def find_handler(self, host, path, rtype=RouteType.REQUEST, method=HTTPVerb.ANY):
         """
         Finds the appropriate handler for the request.
 
@@ -458,6 +529,7 @@ class InterceptedAPI:
         :param host: The host of the request.
         :param path: The path of the request.
         :param rtype: The type of the route. Accepting :class:`RouteType`.
+        :param method: The HTTP method of the route. Accepting :class:`HTTPVerb`
         :return: The handler and the parse result.
         """
         if rtype == RouteType.REQUEST:
@@ -467,8 +539,14 @@ class InterceptedAPI:
         else:
             raise ValueError(f"Invalid route type: {rtype}")
 
-        for h, parser, handler in routes:
-            if h != host:
+        print(routes)
+        for (
+            h,
+            parser,
+            m,
+            handler,
+        ) in routes:
+            if h != host or method not in m:
                 continue
             parse_result = parser.parse(path)
             self._log.debug("Parse %s => %s", path, parse_result)
