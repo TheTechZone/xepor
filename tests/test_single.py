@@ -96,7 +96,7 @@ def api_methods():
     def get(flow: HTTPFlow):
         flow.response = Response.make(200, "GET Successful")
 
-    @api.route("/default", method=HTTPVerb.POST)
+    @api.route("/default", method="POST")
     def post(flow: HTTPFlow):
         flow.response = Response.make(200, "POST Successful")
 
@@ -115,6 +115,14 @@ def api_methods():
     @api.route("/posts", method=HTTPVerb.GET | HTTPVerb.POST)
     def get_post(flow: HTTPFlow):
         flow.response = Response.make(200, "All posts.")
+
+    @api.route("/images", method="get|post")
+    def get_image(flow: HTTPFlow):
+        flow.response = Response.make(200, "All images.")
+
+    @api.route("/statusz", method=["head", "OPTIONS", "trACE"])
+    def get_status(flow: HTTPFlow):
+        flow.response = Response.make(200, "ok")
 
     return api
 
@@ -163,6 +171,31 @@ def test_routes_methods_not_intercepted(toptions, api_methods):
 
             api_methods.request(flow)
             assert flow.response is None
+
+
+def test_routes_different_methods(toptions, api_methods):
+    with taddons.context(api_methods, options=toptions) as tctx:
+        expected_images, expected_status = "All images.", "ok"
+
+        for method in ["get", "post"]:
+            flow = tflow.tflow()
+            flow.request.url = "http://example.net/images"
+
+            flow.request.method = method.upper()
+            assert flow.response is None
+
+            api_methods.request(flow)
+            assert expected_images in flow.response.text
+
+        for method in ["options", "head", "trace"]:
+            flow = tflow.tflow()
+            flow.request.url = "http://example.net/statusz"
+
+            flow.request.method = method.upper()
+            assert flow.response is None
+
+            api_methods.request(flow)
+            assert expected_status in flow.response.text
 
 
 @pytest.fixture

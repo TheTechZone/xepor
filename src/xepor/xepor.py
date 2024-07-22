@@ -47,7 +47,7 @@ class HTTPVerb(IntFlag):
 
     # Class method to parse a string representation of flags
     @classmethod
-    def parse_flags(cls, flags_str):
+    def parse_flags(cls, flags_str: str):
         # Split the input string by '|' to get individual flag names
         flags = flags_str.split("|")
         # Initialize an IntFlag instance with value 0
@@ -55,7 +55,19 @@ class HTTPVerb(IntFlag):
         # Iterate over the split flags and set the corresponding bits
         for flag_name in flags:
             # Remove leading/trailing whitespace and strip quotes if present
-            flag_name = flag_name.strip().strip("'\"")
+            flag_name = flag_name.strip().strip("'\"").upper()
+            # Set the bit corresponding to the flag name
+            parsed_flags |= getattr(cls, flag_name)
+        return parsed_flags
+
+    @classmethod
+    def parse_list(cls, flags: list[str]):
+        # Initialize an IntFlag instance with value 0
+        parsed_flags = cls(0)
+        # Iterate over the split flags and set the corresponding bits
+        for flag_name in flags:
+            # Remove leading/trailing whitespace and strip quotes if present
+            flag_name = flag_name.strip().strip("'\"").upper()
             # Set the bit corresponding to the flag name
             parsed_flags |= getattr(cls, flag_name)
         return parsed_flags
@@ -322,7 +334,7 @@ class InterceptedAPI:
         path: str,
         host: Optional[str] = None,
         rtype: RouteType = RouteType.REQUEST,
-        method: HTTPVerb = HTTPVerb.ANY,
+        method: Union[HTTPVerb, str, list[str]] = HTTPVerb.ANY,
         catch_error: bool = True,
         return_error: bool = False,
         allowed_statuses: Optional[List[int]] = None,
@@ -370,6 +382,8 @@ class InterceptedAPI:
 
         :param method: Sets the HTTP methods supported by the route.
             A bitmap created from :class:`HTTPVerb`.
+            For convenience, if passed a string or list of strings, those will be converted to :class:`HTTPVerb`
+            similarly to how Flask handles them.
 
         :param catch_error: If set to `True`, the exception inside the route
             will be handled by Xepor.
@@ -396,6 +410,11 @@ class InterceptedAPI:
         :return: The decorated function.
         """
         host = host or self.default_host
+
+        if isinstance(method, str):
+            method = HTTPVerb.parse_flags(method)
+        elif isinstance(method, list):
+            method = HTTPVerb.parse_list(method)
 
         def catcher(func):
             """
