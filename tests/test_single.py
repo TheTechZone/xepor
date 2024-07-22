@@ -60,11 +60,11 @@ def test_non_intercepted_route(toptions, api_simple):
 def api_overwritten():
     api = InterceptedAPI("example.org")
 
-    @api.route("/healthz")
+    @api.route("/healthz", method=HTTPVerb.POST)
     def route1(flow: HTTPFlow):
         flow.response = Response.make(500, "Server Down")
 
-    @api.route("/healthz")
+    @api.route("/healthz", method=HTTPVerb.POST)
     def route1_alt(flow: HTTPFlow):
         flow.response = Response.make(200, "Server Up for requests")
 
@@ -81,6 +81,7 @@ def test_route_replacement(toptions, api_overwritten, req_url, resp_body):
     with taddons.context(api_overwritten, options=toptions) as tctx:
         flow = tflow.tflow()
         flow.request.url = req_url
+        flow.request.method = "POST"
         assert flow.response is None
 
         api_overwritten.request(flow)
@@ -188,11 +189,10 @@ def api_overwritten_methods():
 def test_routes_methods_with_priority(toptions, api_overwritten_methods):
     with taddons.context(api_overwritten_methods, options=toptions) as tctx:
         num_routes = len(api_overwritten_methods.request_routes)
-        print(api_overwritten_methods.request_routes)
         assert num_routes == 3, f"Expected 3 routes, got {num_routes}"
 
         route_methods = [
-            method for (_, _, method, _) in api_overwritten_methods.request_routes
+            method for (_, _, method, _, _) in api_overwritten_methods.request_routes
         ]
         assert route_methods == [
             HTTPVerb.GET,

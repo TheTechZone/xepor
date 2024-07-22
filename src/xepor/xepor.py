@@ -148,10 +148,12 @@ class InterceptedAPI:
 
         self.default_host = default_host
         self.host_mapping = host_mapping
-        self.request_routes: List[Tuple[Optional[str], Parser, HTTPVerb, callable]] = []
-        self.response_routes: List[Tuple[Optional[str], Parser, HTTPVerb, callable]] = (
-            []
-        )
+        self.request_routes: List[
+            Tuple[Optional[str], Parser, HTTPVerb, callable, Optional[List[int]]]
+        ] = []
+        self.response_routes: List[
+            Tuple[Optional[str], Parser, HTTPVerb, callable, Optional[List[int]]]
+        ] = []
         self.blacklist_domain = blacklist_domain
         self.request_passthrough = request_passthrough
         self.response_passthrough = response_passthrough
@@ -209,7 +211,7 @@ class InterceptedAPI:
             )
             return
         host = self.remap_host(flow)
-        handler, params = self.find_handler(
+        handler, params, _ = self.find_handler(
             host, path, RouteType.REQUEST, HTTPVerb.parse_flags(flow.request.method)
         )
         if handler is not None:
@@ -245,7 +247,7 @@ class InterceptedAPI:
                 path,
             )
             return
-        handler, params = self.find_handler(
+        handler, params, allowed_codes = self.find_handler(
             self.get_host(flow)[0],
             path,
             RouteType.RESPONSE,
@@ -253,6 +255,13 @@ class InterceptedAPI:
         )
         if handler is not None:
             self._log.info("=> [%s] %s", flow.response.status_code, path)
+            if allowed_codes and flow.response.status_code not in allowed_codes:
+                self._log.warning(
+                    "=> [%s] %s not in allowed status codes",
+                    flow.response.status_code,
+                    path,
+                )
+                return
             handler(flow, *params.fixed, **params.named)
         elif (
             not self.response_passthrough
@@ -267,7 +276,13 @@ class InterceptedAPI:
             self._log.debug("=> [%s] %s passthrough", flow.response.status_code, path)
 
     def replace_route(
-        self, host, path, new_handler, rtype=RouteType.REQUEST, method=HTTPVerb.ANY
+        self,
+        host,
+        path,
+        new_handler,
+        rtype=RouteType.REQUEST,
+        method=HTTPVerb.ANY,
+        allowed_statuses=None,
     ):
         """
         Replace an existing route if it matches the host and path.
@@ -277,7 +292,7 @@ class InterceptedAPI:
         )
 
         partial_matches = []
-        for i, (h, parser, m, handler) in enumerate(routes):
+        for i, (h, parser, m, handler, status_codes) in enumerate(routes):
             if (
                 h == host
                 and (method in m or m in method)
@@ -285,19 +300,19 @@ class InterceptedAPI:
             ):
                 # routes[i] = (host, Parser(path), method, new_handler)
                 # return True
-                partial_matches.append([i, (h, parser, m, handler)])
+                partial_matches.append([i, (h, parser, m, handler, status_codes)])
 
         if len(partial_matches) > 0:
-            for i, (h, parser, m, handler) in partial_matches:
+            for i, (h, parser, m, handler, status_codes) in partial_matches:
                 if method == m:
-                    routes[i] = (h, parser, m, new_handler)
+                    routes[i] = (h, parser, m, new_handler, allowed_statuses)
                     return True
                 if method in m:
                     m = m & ~method
-                    routes[i] = (h, parser, m, handler)
+                    routes[i] = (h, parser, m, handler, status_codes)
                 elif m in method:
                     method = method & ~m
-            routes.append((host, Parser(path), method, new_handler))
+            routes.append((host, Parser(path), method, new_handler, allowed_statuses))
             return True
 
         return False
@@ -310,6 +325,7 @@ class InterceptedAPI:
         method: HTTPVerb = HTTPVerb.ANY,
         catch_error: bool = True,
         return_error: bool = False,
+        allowed_statuses: Optional[List[int]] = None,
     ):
         """
         This is the main API used by end users.
@@ -374,6 +390,9 @@ class InterceptedAPI:
                 ``modify1(flow) and modify2(flow) and modify3(flow)`` and exception raised
                 in ``modify2()``, the ``flow`` object will be modified partially.
 
+        :param allowed_statuses: List of allowed status codes for the route. If the response status code
+            is not in this list, the request will be logged.
+
         :return: The decorated function.
         """
         host = host or self.default_host
@@ -413,15 +432,12 @@ class InterceptedAPI:
             else:
                 if rtype == RouteType.REQUEST:
                     self.request_routes.append(
-                        (
-                            host,
-                            Parser(path),
-                            method,
-                            handler,
-                        )
+                        (host, Parser(path), method, handler, None)
                     )
                 elif rtype == RouteType.RESPONSE:
-                    self.response_routes.append((host, Parser(path), method, handler))
+                    self.response_routes.append(
+                        (host, Parser(path), method, handler, allowed_statuses)
+                    )
                 else:
                     raise ValueError(f"Invalid route type: {rtype}")
             return handler
@@ -541,18 +557,12 @@ class InterceptedAPI:
         else:
             raise ValueError(f"Invalid route type: {rtype}")
 
-        print(routes)
-        for (
-            h,
-            parser,
-            m,
-            handler,
-        ) in routes:
+        for h, parser, m, handler, status_codes in routes:
             if h != host or method not in m:
                 continue
             parse_result = parser.parse(path)
             self._log.debug("Parse %s => %s", path, parse_result)
             if parse_result is not None:
-                return handler, parse_result
+                return handler, parse_result, status_codes
 
-        return None, None
+        return None, None, None
