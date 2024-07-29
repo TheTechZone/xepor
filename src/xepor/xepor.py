@@ -156,13 +156,13 @@ class InterceptedAPI:
     ]
 
     def __init__(
-            self,
-            default_host: Optional[str] = None,
-            host_mapping: List[Tuple[Union[str, re.Pattern], str]] = {},
-            blacklist_domain: List[str] = [],
-            request_passthrough: bool = True,
-            response_passthrough: bool = True,
-            respect_proxy_headers: bool = False,
+        self,
+        default_host: Optional[str] = None,
+        host_mapping: List[Tuple[Union[str, re.Pattern], str]] = {},
+        blacklist_domain: List[str] = [],
+        request_passthrough: bool = True,
+        response_passthrough: bool = True,
+        respect_proxy_headers: bool = False,
     ):
 
         self.default_host = default_host
@@ -243,8 +243,8 @@ class InterceptedAPI:
             self._log.info("<= [%s] %s", flow.request.method, path)
             handler(flow, *params.fixed, **params.named)
         elif (
-                not self.request_passthrough
-                or self.get_host(flow)[0] in self.blacklist_domain
+            not self.request_passthrough
+            or self.get_host(flow)[0] in self.blacklist_domain
         ):
             self._log.warning("<= [%s] %s default response", flow.request.method, path)
             flow.response = self.default_response()
@@ -289,8 +289,8 @@ class InterceptedAPI:
                 return
             handler(flow, *params.fixed, **params.named)
         elif (
-                not self.response_passthrough
-                or self.get_host(flow)[0] in self.blacklist_domain
+            not self.response_passthrough
+            or self.get_host(flow)[0] in self.blacklist_domain
         ):
             self._log.warning(
                 "=> [%s] %s default response", flow.response.status_code, path
@@ -301,12 +301,11 @@ class InterceptedAPI:
             self._log.debug("=> [%s] %s passthrough", flow.response.status_code, path)
 
     def websocket_message(self, flow: HTTPFlow):
-        print(f"Websocket flow: {flow}")
         ws = flow.websocket
         if not ws:
             self._log.warning(f"websocket flow is empty: {flow}")
+            return
         msg = ws.messages[-1]
-        print(msg)
         is_request = msg.from_client
         direction = "<=" if is_request else "=>"
 
@@ -317,33 +316,32 @@ class InterceptedAPI:
             flow.metadata[FlowMeta.REQ_URLPARSE] = url
 
         path = url.path
-        if (is_request and flow.metadata.get(FlowMeta.REQ_PASSTHROUGH) is True) or (
-                not is_request and flow.metadata.get(FlowMeta.RESP_PASSTHROUGH) is True):
-            self._log.warning(
-                "%s [%s] %s skipped because of previous passthrough",
-                direction,
-                flow.response.status_code,
-                path,
-            )
-            return
+        # todo: check this later
+        # if (is_request and flow.metadata.get(FlowMeta.REQ_PASSTHROUGH) is True) or (
+        #         not is_request and flow.metadata.get(FlowMeta.RESP_PASSTHROUGH) is True):
+        #     self._log.warning(
+        #         "%s [%s] %s skipped because of previous passthrough",
+        #         direction,
+        #         flow.response.status_code,
+        #         path,
+        #     )
+        #     return
 
         rtype = RouteType.REQUEST if is_request else RouteType.RESPONSE
         mtype = WSMsgType(int(msg.type))
         whandler, params = self.find_ws_handler(
-            self.get_host(flow)[0],
-            path,
-            rtype,
-            mtype
+            self.get_host(flow)[0], path, rtype, mtype
         )
         if whandler is not None:
             self._log.info("%s %s", direction, path)
             whandler(flow, *params.fixed, **params.named)
         elif (
-                (not self.request_passthrough or not self.response_passthrough)
-                or self.get_host(flow)[0] in self.blacklist_domain
-        ):
+            not self.request_passthrough or not self.response_passthrough
+        ) or self.get_host(flow)[0] in self.blacklist_domain:
             if is_request:
-                self._log.warning("<= [%s] %s default response", flow.request.method, path)
+                self._log.warning(
+                    "<= [%s] %s default response", flow.request.method, path
+                )
                 flow.response = self.default_response()
             else:
                 self._log.warning(
@@ -364,13 +362,13 @@ class InterceptedAPI:
     #     self._log.info("WebSocket connection ended: %s", flow)
 
     def replace_route(
-            self,
-            host,
-            path,
-            new_handler,
-            rtype=RouteType.REQUEST,
-            method=HTTPVerb.ANY,
-            allowed_statuses=None,
+        self,
+        host,
+        path,
+        new_handler,
+        rtype=RouteType.REQUEST,
+        method=HTTPVerb.ANY,
+        allowed_statuses=None,
     ):
         """
         Replace an existing route if it matches the host and path.
@@ -382,9 +380,9 @@ class InterceptedAPI:
         partial_matches = []
         for i, (h, parser, m, handler, status_codes) in enumerate(routes):
             if (
-                    h == host
-                    and (method in m or m in method)
-                    and parser.parse(path) is not None
+                h == host
+                and (method in m or m in method)
+                and parser.parse(path) is not None
             ):
                 # routes[i] = (host, Parser(path), method, new_handler)
                 # return True
@@ -406,14 +404,14 @@ class InterceptedAPI:
         return False
 
     def route(
-            self,
-            path: str,
-            host: Optional[str] = None,
-            rtype: RouteType = RouteType.REQUEST,
-            method: Union[HTTPVerb, str, list[str]] = HTTPVerb.ANY,
-            catch_error: bool = True,
-            return_error: bool = False,
-            allowed_statuses: Optional[List[int]] = None,
+        self,
+        path: str,
+        host: Optional[str] = None,
+        rtype: RouteType = RouteType.REQUEST,
+        method: Union[HTTPVerb, str, list[str]] = HTTPVerb.ANY,
+        catch_error: bool = True,
+        return_error: bool = False,
+        allowed_statuses: Optional[List[int]] = None,
     ):
         """
         This is the main API used by end users.
@@ -539,10 +537,15 @@ class InterceptedAPI:
 
         return wrapper
 
-    def ws_route(self, path=str, host: Optional[str] = None, rtype=RouteType.REQUEST,
-                 mtype=WSMsgType.ANY,
-                 catch_error: bool = True,
-                 return_error: bool = False):
+    def ws_route(
+        self,
+        path=str,
+        host: Optional[str] = None,
+        rtype=RouteType.REQUEST,
+        mtype=WSMsgType.ANY,
+        catch_error: bool = True,
+        return_error: bool = False,
+    ):
         host = host or self.default_host
 
         def catcher(func):
@@ -579,13 +582,9 @@ class InterceptedAPI:
                 )
             else:
                 if rtype == RouteType.REQUEST:
-                    self.ws_request_routes.append(
-                        (host, Parser(path), mtype, handler)
-                    )
+                    self.ws_request_routes.append((host, Parser(path), mtype, handler))
                 elif rtype == RouteType.RESPONSE:
-                    self.ws_response_routes.append(
-                        (host, Parser(path), mtype, handler)
-                    )
+                    self.ws_response_routes.append((host, Parser(path), mtype, handler))
                 else:
                     raise ValueError(f"Invalid route type: {rtype}")
             return handler
@@ -608,10 +607,10 @@ class InterceptedAPI:
         host, port = self.get_host(flow)
         for src, dest in self.host_mapping:
             if (isinstance(src, re.Pattern) and src.match(host)) or (
-                    isinstance(src, str) and host == src
+                isinstance(src, str) and host == src
             ):
                 if overwrite and (
-                        flow.request.host != dest or flow.request.port != port
+                    flow.request.host != dest or flow.request.port != port
                 ):
                     if self.respect_proxy_headers:
                         flow.request.scheme = flow.request.headers["X-Forwarded-Proto"]
@@ -717,32 +716,44 @@ class InterceptedAPI:
 
     def replace_ws_route(self, host, path, new_handler, rtype, mtype):
         routes = (
-            self.ws_request_routes if rtype == RouteType.REQUEST else self.response_routes
+            self.ws_request_routes
+            if rtype == RouteType.REQUEST
+            else self.ws_response_routes
         )
 
         partial_matches = []
 
         for i, (h, parser, m, handler) in enumerate(routes):
             if (
-                    h == host
-                    and (mtype in m or m in mtype)
-                    and parser.parse(path) is not None
+                h == host
+                and (mtype in m or m in mtype)
+                and parser.parse(path) is not None
             ):
-                # routes[i] = (host, Parser(path), method, new_handler)
-                # return True
                 partial_matches.append([i, (h, parser, m, handler)])
 
         if len(partial_matches) > 0:
             for i, (h, parser, m, handler) in partial_matches:
                 if mtype == m:
-                    routes[i] = (h, parser, m, new_handler,)
+                    routes[i] = (
+                        h,
+                        parser,
+                        m,
+                        new_handler,
+                    )
                     return True
                 if mtype in m:
                     m = m & ~mtype
                     routes[i] = (h, parser, m, handler)
                 elif m in mtype:
                     mtype = mtype & ~m
-            routes.append((host, Parser(path), mtype, new_handler,))
+            routes.append(
+                (
+                    host,
+                    Parser(path),
+                    mtype,
+                    new_handler,
+                )
+            )
             return True
 
         return False
