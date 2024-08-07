@@ -1,7 +1,7 @@
 import pytest
 from mitmproxy.http import HTTPFlow, Response
 from mitmproxy.test import taddons, tflow
-from src.xepor import InterceptedAPI, HTTPVerb
+from src.xepor import InterceptedAPI, HTTPVerb, RouteType
 
 __author__ = "ttimasdf"
 __copyright__ = "ttimasdf"
@@ -31,8 +31,8 @@ def api_simple():
     [
         ("http://example.com/test", "TEST intercepted"),
         (
-            "http://hls.videocc.net/jkag324wd2/e/cwqzcxkvj0iukomqxu0l591u2dke4vkc_1.m3u8",
-            "TEST 2 INTERCEPTED",
+                "http://hls.videocc.net/jkag324wd2/e/cwqzcxkvj0iukomqxu0l591u2dke4vkc_1.m3u8",
+                "TEST 2 INTERCEPTED",
         ),
     ],
 )
@@ -247,3 +247,42 @@ def test_routes_methods_with_priority(toptions, api_overwritten_methods):
             api_overwritten_methods.request(flow)
             # assert
             assert expected_data in flow.response.text
+
+
+@pytest.fixture
+def api_status_codes():
+    api = InterceptedAPI("example.org")
+
+    @api.route("/status")
+    def req(flow: HTTPFlow):
+        if flow.request.query.get("fail") is not None:
+            flow.response = Response.make(400, "failed")
+            return
+        flow.response = Response.make(200, "ok")
+        return
+
+    @api.route("/status", rtype=RouteType.RESPONSE, allowed_statuses=[200])
+    def resp(flow: HTTPFlow):
+        if flow.response.status_code == 200:
+            flow.response.content = b"intercepted"
+
+    return api
+
+def test_routes_methods_with_statuses(toptions, api_status_codes):
+    with taddons.context(api_status_codes, options=toptions) as tctx:
+        flow = tflow.tflow()
+        flow.request.url = "http://example.org/status"
+
+        api_status_codes.request(flow)
+        assert flow.response.status_code == 200
+        assert flow.response.text == "ok"
+        api_status_codes.response(flow)
+        assert flow.response.text == "intercepted"
+
+        flow = tflow.tflow()
+        flow.request.url = "http://example.org/status?fail=1"
+
+        api_status_codes.request(flow)
+        api_status_codes.response(flow)
+        assert flow.response.status_code == 400
+        assert flow.response.text == "failed"
