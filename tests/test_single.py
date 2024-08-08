@@ -221,11 +221,11 @@ def api_overwritten_methods():
 
 def test_routes_methods_with_priority(toptions, api_overwritten_methods):
     with taddons.context(api_overwritten_methods, options=toptions) as tctx:
-        num_routes = len(api_overwritten_methods.request_routes)
+        num_routes = len(api_overwritten_methods.request_routes.routes)
         assert num_routes == 3, f"Expected 3 routes, got {num_routes}"
 
         route_methods = [
-            method for (_, _, method, _, _) in api_overwritten_methods.request_routes
+            method for (_, _, method, _, _) in api_overwritten_methods.request_routes.routes
         ]
         assert route_methods == [
             HTTPVerb.GET,
