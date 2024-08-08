@@ -5,15 +5,14 @@ import re
 import sys
 import traceback
 import urllib.parse
-from enum import Enum, IntFlag, auto
-from typing import List, Optional, Tuple, Union
+from enum import StrEnum, Enum, IntFlag, auto
+from typing import List, Optional, Tuple, Union, Callable
 
 from mitmproxy import ctx
 from mitmproxy.addonmanager import Loader
 from mitmproxy.connection import Server
 from mitmproxy.http import HTTPFlow, Response
 from mitmproxy.net.http import url
-from mitmproxy.websocket import WebSocketMessage
 from parse import Parser
 
 __author__ = "ttimasdf"
@@ -80,7 +79,7 @@ class WSMsgType(IntFlag):
     ANY = TEXT | BINARY
 
 
-class FlowMeta(Enum):
+class FlowMeta(StrEnum):
     """
     This class is used internally by Xepor to mark ``flow`` object by certain metadata.
     Refer to the source code for detailed usage.
@@ -329,12 +328,12 @@ class InterceptedAPI:
 
         rtype = RouteType.REQUEST if is_request else RouteType.RESPONSE
         mtype = WSMsgType(int(msg.type))
-        whandler, params = self.find_ws_handler(
+        ws_handler, params = self.find_ws_handler(
             self.get_host(flow)[0], path, rtype, mtype
         )
-        if whandler is not None:
+        if ws_handler is not None:
             self._log.info("%s %s", direction, path)
-            whandler(flow, *params.fixed, **params.named)
+            ws_handler(flow, *params.fixed, **params.named)
         elif (
             not self.request_passthrough or not self.response_passthrough
         ) or self.get_host(flow)[0] in self.blacklist_domain:
@@ -490,7 +489,7 @@ class InterceptedAPI:
         elif isinstance(method, list):
             method = HTTPVerb.parse_list(method)
 
-        def catcher(func):
+        def catcher(func: Callable):
             """
             The internal wrapper for catching exceptions
             if `catch_error` is specified.
@@ -548,7 +547,7 @@ class InterceptedAPI:
     ):
         host = host or self.default_host
 
-        def catcher(func):
+        def catcher(func: Callable) -> Callable:
             """
             The internal wrapper for catching exceptions
             if `catch_error` is specified.
@@ -571,7 +570,7 @@ class InterceptedAPI:
 
             return handler
 
-        def wrapper(handler):
+        def wrapper(handler: Callable):
             if catch_error:
                 handler = catcher(handler)
 
@@ -614,7 +613,7 @@ class InterceptedAPI:
                 ):
                     if self.respect_proxy_headers:
                         flow.request.scheme = flow.request.headers["X-Forwarded-Proto"]
-                    flow.server_conn = Server((dest, port))
+                    flow.server_conn = Server(address=(dest, port))
                     flow.request.host = dest
                     flow.request.port = port
                 self._log.debug(
