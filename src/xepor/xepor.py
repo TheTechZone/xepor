@@ -12,8 +12,9 @@ from mitmproxy import ctx
 from mitmproxy.addonmanager import Loader
 from mitmproxy.connection import Server
 from mitmproxy.http import HTTPFlow, Response
-from mitmproxy.net.http import url
+from mitmproxy.net.http.url import parse_authority, default_port
 from parse import Parser
+from urllib.parse import ParseResult
 
 __author__ = "ttimasdf"
 __copyright__ = "ttimasdf"
@@ -102,31 +103,31 @@ class Router:
         ] = []
 
     def add_route(
-        self,
-        host: str,
-        path: Parser,
-        method: HTTPVerb,
-        handler: Callable,
-        allowed_statuses: Optional[List[int]],
+            self,
+            host: str,
+            path: Parser,
+            method: HTTPVerb,
+            handler: Callable,
+            allowed_statuses: Optional[List[int]],
     ):
         self.routes.append((host, path, method, handler, allowed_statuses))
 
     def replace_route(
-        self,
-        host: str,
-        path: Parser,
-        new_handler: Callable,
-        method: HTTPVerb,
-        allowed_statuses: List[int],
+            self,
+            host: str,
+            path: Parser,
+            new_handler: Callable,
+            method: HTTPVerb,
+            allowed_statuses: List[int],
     ) -> bool:
         partial_matches = []
         for i, (h, parser, m, handler, status_codes) in enumerate(self.routes):
             if (
-                h == host
-                and (
+                    h == host
+                    and (
                     method in m or m in method
-                )  #  handle both the case when the new route has higher or lower specificity
-                and parser.parse(path) is not None
+            )  # handle both the case when the new route has higher or lower specificity
+                    and parser.parse(path) is not None
             ):
                 partial_matches.append([i, (h, parser, m, handler, status_codes)])
 
@@ -167,15 +168,15 @@ class WSRouter:
         self.routes.append((host, path, mtype, handler))
 
     def replace_route(
-        self, host: str, path: Parser, new_handler: Callable, mtype: WSMsgType
+            self, host: str, path: Parser, new_handler: Callable, mtype: WSMsgType
     ) -> bool:
         partial_matches = []
 
         for i, (h, parser, m, handler) in enumerate(self.routes):
             if (
-                h == host
-                and (mtype in m or m in mtype)
-                and parser.parse(path) is not None
+                    h == host
+                    and (mtype in m or m in mtype)
+                    and parser.parse(path) is not None
             ):
                 partial_matches.append([i, (h, parser, m, handler)])
 
@@ -281,13 +282,13 @@ class InterceptedAPI:
     ]
 
     def __init__(
-        self,
-        default_host: Optional[str] = None,
-        host_mapping: List[Tuple[Union[str, re.Pattern], str]] = None,
-        blacklist_domain: List[str] = None,
-        request_passthrough: bool = True,
-        response_passthrough: bool = True,
-        respect_proxy_headers: bool = False,
+            self,
+            default_host: Optional[str] = None,
+            host_mapping: List[Tuple[Union[str, re.Pattern], str]] = None,
+            blacklist_domain: List[str] = None,
+            request_passthrough: bool = True,
+            response_passthrough: bool = True,
+            respect_proxy_headers: bool = False,
     ):
 
         self.default_host = default_host
@@ -334,6 +335,20 @@ class InterceptedAPI:
     #     self._log.debug("Getting connection: peer=%s sock=%s addr=%s . state=%s",
     #         data.server.peername, data.server.sockname, data.server.address, data.server)
 
+    def __internal_fix_parser(self, parse_data: list[str]) -> ParseResult:
+        """
+        When serialized, the metadata written by Xepor is converted (the named tuple becomes a list).
+        This breaks the logic for retrieving the path.
+        FIXME: this is ugly....
+        """
+        if isinstance(parse_data, ParseResult):
+            self._log.info("Was called to parse un-needed result, continuing...")
+            return parse_data
+        if isinstance(parse_data, list) and len(parse_data) == 6:
+            return ParseResult(scheme=parse_data[0], netloc=parse_data[1], path=parse_data[2], params=parse_data[3],
+                               query=parse_data[4], fragment=5)
+        raise ValueError( f"received bad argument ({type(parse_data)}): {parse_data}")
+
     def request(self, flow: HTTPFlow):
         """
         This function is called by the mitmproxy framework whenever a request is made.
@@ -343,9 +358,13 @@ class InterceptedAPI:
         """
         if FlowMeta.REQ_URLPARSE in flow.metadata:
             url = flow.metadata[FlowMeta.REQ_URLPARSE]
+            if not flow.live:
+                url = self.__internal_fix_parser(url)
+                flow.metadata[FlowMeta.REQ_URLPARSE] = url
         else:
             url = urllib.parse.urlparse(flow.request.path)
             flow.metadata[FlowMeta.REQ_URLPARSE] = url
+
         path = url.path
         if flow.metadata.get(FlowMeta.REQ_PASSTHROUGH) is True:
             self._log.warning(
@@ -362,8 +381,8 @@ class InterceptedAPI:
             self._log.info("<= [%s] %s", flow.request.method, path)
             handler(flow, *params.fixed, **params.named)
         elif (
-            not self.request_passthrough
-            or self.get_host(flow)[0] in self.blacklist_domain
+                not self.request_passthrough
+                or self.get_host(flow)[0] in self.blacklist_domain
         ):
             self._log.warning("<= [%s] %s default response", flow.request.method, path)
             flow.response = self.default_response()
@@ -380,6 +399,9 @@ class InterceptedAPI:
         """
         if FlowMeta.REQ_URLPARSE in flow.metadata:
             url = flow.metadata[FlowMeta.REQ_URLPARSE]
+            if not flow.live:
+                url = self.__internal_fix_parser(url)
+                flow.metadata[FlowMeta.REQ_URLPARSE] = url
         else:
             url = urllib.parse.urlparse(flow.request.path)
             flow.metadata[FlowMeta.REQ_URLPARSE] = url
@@ -408,8 +430,8 @@ class InterceptedAPI:
                 return
             handler(flow, *params.fixed, **params.named)
         elif (
-            not self.response_passthrough
-            or self.get_host(flow)[0] in self.blacklist_domain
+                not self.response_passthrough
+                or self.get_host(flow)[0] in self.blacklist_domain
         ):
             self._log.warning(
                 "=> [%s] %s default response", flow.response.status_code, path
@@ -430,6 +452,9 @@ class InterceptedAPI:
 
         if FlowMeta.REQ_URLPARSE in flow.metadata:
             url = flow.metadata[FlowMeta.REQ_URLPARSE]
+            if not flow.live:
+                url = self.__internal_fix_parser(url)
+                flow.metadata[FlowMeta.REQ_URLPARSE] = url
         else:
             url = urllib.parse.urlparse(flow.request.path)
             flow.metadata[FlowMeta.REQ_URLPARSE] = url
@@ -455,7 +480,7 @@ class InterceptedAPI:
             self._log.info("%s %s", direction, path)
             ws_handler(flow, *params.fixed, **params.named)
         elif (
-            not self.request_passthrough or not self.response_passthrough
+                not self.request_passthrough or not self.response_passthrough
         ) or self.get_host(flow)[0] in self.blacklist_domain:
             if is_request:
                 self._log.warning(
@@ -481,13 +506,13 @@ class InterceptedAPI:
     #     self._log.info("WebSocket connection ended: %s", flow)
 
     def replace_route(
-        self,
-        host,
-        path,
-        new_handler,
-        rtype=RouteType.REQUEST,
-        method=HTTPVerb.ANY,
-        allowed_statuses=None,
+            self,
+            host,
+            path,
+            new_handler,
+            rtype=RouteType.REQUEST,
+            method=HTTPVerb.ANY,
+            allowed_statuses=None,
     ):
         """
         Replace an existing route if it matches the host and path.
@@ -498,41 +523,15 @@ class InterceptedAPI:
 
         return routes.replace_route(host, path, new_handler, method, allowed_statuses)
 
-        # partial_matches = []
-        # for i, (h, parser, m, handler, status_codes) in enumerate(routes):
-        #     if (
-        #         h == host
-        #         and (method in m or m in method)
-        #         and parser.parse(path) is not None
-        #     ):
-        #         # routes[i] = (host, Parser(path), method, new_handler)
-        #         # return True
-        #         partial_matches.append([i, (h, parser, m, handler, status_codes)])
-        #
-        # if len(partial_matches) > 0:
-        #     for i, (h, parser, m, handler, status_codes) in partial_matches:
-        #         if method == m:
-        #             routes[i] = (h, parser, m, new_handler, allowed_statuses)
-        #             return True
-        #         if method in m:
-        #             m = m & ~method
-        #             routes[i] = (h, parser, m, handler, status_codes)
-        #         elif m in method:
-        #             method = method & ~m
-        #     routes.append((host, Parser(path), method, new_handler, allowed_statuses))
-        #     return True
-        #
-        # return False
-
     def route(
-        self,
-        path: str,
-        host: Optional[str] = None,
-        rtype: RouteType = RouteType.REQUEST,
-        method: Union[HTTPVerb, str, list[str]] = HTTPVerb.ANY,
-        catch_error: bool = True,
-        return_error: bool = False,
-        allowed_statuses: Optional[List[int]] = None,
+            self,
+            path: str,
+            host: Optional[str] = None,
+            rtype: RouteType = RouteType.REQUEST,
+            method: Union[HTTPVerb, str, list[str]] = HTTPVerb.ANY,
+            catch_error: bool = True,
+            return_error: bool = False,
+            allowed_statuses: Optional[List[int]] = None,
     ):
         """
         This is the main API used by end users.
@@ -665,13 +664,13 @@ class InterceptedAPI:
         return wrapper
 
     def ws_route(
-        self,
-        path=str,
-        host: Optional[str] = None,
-        rtype=RouteType.REQUEST,
-        mtype=WSMsgType.ANY,
-        catch_error: bool = True,
-        return_error: bool = False,
+            self,
+            path=str,
+            host: Optional[str] = None,
+            rtype=RouteType.REQUEST,
+            mtype=WSMsgType.ANY,
+            catch_error: bool = True,
+            return_error: bool = False,
     ):
         host = host or self.default_host
 
@@ -736,10 +735,10 @@ class InterceptedAPI:
         host, port = self.get_host(flow)
         for src, dest in self.host_mapping:
             if (isinstance(src, re.Pattern) and src.match(host)) or (
-                isinstance(src, str) and host == src
+                    isinstance(src, str) and host == src
             ):
                 if overwrite and (
-                    flow.request.host != dest or flow.request.port != port
+                        flow.request.host != dest or flow.request.port != port
                 ):
                     if self.respect_proxy_headers:
                         flow.request.scheme = flow.request.headers["X-Forwarded-Proto"]
@@ -777,8 +776,8 @@ class InterceptedAPI:
                 port = int(flow.request.headers["X-Forwarded-Port"])
             else:
                 # Get Destination Host
-                host, port = url.parse_authority(flow.request.pretty_host, check=False)
-                port = port or url.default_port(flow.request.scheme) or 80
+                host, port = parse_authority(flow.request.pretty_host, check=False)
+                port = port or default_port(flow.request.scheme) or 80
             flow.metadata[FlowMeta.REQ_HOST] = (host, port)
         return flow.metadata[FlowMeta.REQ_HOST]
 
@@ -812,7 +811,7 @@ class InterceptedAPI:
         return Response.make(502, msg)
 
     def find_handler(
-        self, host: str, path: str, rtype=RouteType.REQUEST, method=HTTPVerb.ANY
+            self, host: str, path: str, rtype=RouteType.REQUEST, method=HTTPVerb.ANY
     ):
         """
         Finds the appropriate handler for the request.
