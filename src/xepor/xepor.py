@@ -638,7 +638,8 @@ class InterceptedAPI:
                 handler = catcher(handler)
 
             # Check and replace existing route
-            if self.replace_route(host, path, handler, rtype, method):
+            if self.replace_route(host, path, handler, rtype, method, allowed_statuses=allowed_statuses):
+                # todo: add test for the precondition...
                 self._log.info(
                     "Replaced existing route for host: %s, path: %s", host, path
                 )
