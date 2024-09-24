@@ -91,15 +91,16 @@ class FlowMeta(StrEnum):
     REQ_URLPARSE: str = "xepor-request-urlparse"
     REQ_HOST: str = "xepor-request-host"
 
-
+# HandlerType = Callable[[HTTPFlow, Any, Any], None]
+HandlerType = Callable[[], None]
 class Router:
     """
-    Currently the routes makes abstraction of the direction of flow.
+    Currently, the router makes abstraction of the flow's direction.
     """
 
     def __init__(self):
         self.routes: List[
-            Tuple[Optional[str], Parser, HTTPVerb, callable, Optional[List[int]]]
+            Tuple[Optional[str], Parser, HTTPVerb, HandlerType, Optional[List[int]]]
         ] = []
 
     def add_route(
@@ -347,7 +348,7 @@ class InterceptedAPI:
         if isinstance(parse_data, list) and len(parse_data) == 6:
             return ParseResult(scheme=parse_data[0], netloc=parse_data[1], path=parse_data[2], params=parse_data[3],
                                query=parse_data[4], fragment=5)
-        raise ValueError( f"received bad argument ({type(parse_data)}): {parse_data}")
+        raise ValueError(f"received bad argument ({type(parse_data)}): {parse_data}")
 
     def request(self, flow: HTTPFlow):
         """

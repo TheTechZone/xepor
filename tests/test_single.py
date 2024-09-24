@@ -43,6 +43,7 @@ def test_intercepted_route(toptions, api_simple, req_url, resp_body):
         assert flow.response is None
 
         api_simple.request(flow)
+        assert flow.response is not None
         assert resp_body in flow.response.text
 
 
@@ -85,6 +86,7 @@ def test_route_replacement(toptions, api_overwritten, req_url, resp_body):
         assert flow.response is None
 
         api_overwritten.request(flow)
+        assert flow.response is not None
         assert resp_body in flow.response.text
 
 
@@ -145,6 +147,7 @@ def test_route_methods(toptions, api_methods, req_url, method, resp_body):
         assert flow.response is None
 
         api_methods.request(flow)
+        assert flow.response is not None
         assert resp_body in flow.response.text
 
 
@@ -160,6 +163,7 @@ def test_routes_methods_not_intercepted(toptions, api_methods):
             assert flow.response is None
 
             api_methods.request(flow)
+            assert flow.response is not None
             assert expected_good in flow.response.text
 
         for method in ["put", "patch", "delete", "options", "head", "trace", "connect"]:
@@ -185,6 +189,7 @@ def test_routes_different_methods(toptions, api_methods):
             assert flow.response is None
 
             api_methods.request(flow)
+            assert flow.response is not None
             assert expected_images in flow.response.text
 
         for method in ["options", "head", "trace"]:
@@ -195,6 +200,7 @@ def test_routes_different_methods(toptions, api_methods):
             assert flow.response is None
 
             api_methods.request(flow)
+            assert flow.response is not None
             assert expected_status in flow.response.text
 
 
@@ -246,6 +252,7 @@ def test_routes_methods_with_priority(toptions, api_overwritten_methods):
 
             api_overwritten_methods.request(flow)
             # assert
+            assert flow.response is not None
             assert expected_data in flow.response.text
 
 
@@ -259,7 +266,6 @@ def api_status_codes():
             flow.response = Response.make(400, "failed")
             return
         flow.response = Response.make(200, "ok")
-        return
 
     @api.route("/status", rtype=RouteType.RESPONSE, allowed_statuses=[200])
     def resp(flow: HTTPFlow):
